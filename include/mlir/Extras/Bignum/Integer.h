@@ -451,7 +451,6 @@ private:
     /// @pre        `isAllocated()`
     ///
     /// @post       `capacity() == 0`
-    /// @post       `size_and_sign() == 0`
     void free();
     /// Reallocates the external storage.
     ///
