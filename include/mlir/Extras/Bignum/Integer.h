@@ -13,8 +13,13 @@
 /// up to 64 active bits are used, which is what we expect almost all values to
 /// be. So, an additional trick is used to eliminate allocations by providing
 /// in-line storage of 64 bits in the C++ wrapper type. Due to limitations of
-/// the GMP interface, this does not remove all 1 limb allocations (only during
+/// the GMP interface, this does not remove all small allocations (only during
 /// init), and breaks ABI compatibility for an mpq wrapper type.
+///
+/// To achieve true allocation-free GMP integers for values within 64 bits, the
+/// inline storage must acommodate 128 bits (2 words), since that is the
+/// maximum required capacity for any operation, i.e. the size GMP will allocate
+/// when multiplying two 64 bit numbers.
 ///
 /// @file
 /// @author     Karl F. A. Friebel (karl.friebel@tu-dresden.de)
@@ -23,6 +28,7 @@
 
 #include "mlir/Extras/Bignum/LimbRange.h"
 
+#include <array>
 #include <mlir/IR/DialectImplementation.h>
 #include <optional>
 #include <string>
@@ -32,9 +38,13 @@ namespace mlir::ext {
 /// Implements a multiprecision integer type.
 ///
 /// Internally implements a wrapper around GMP mpz with an added inline storage
-/// implementation to avoid allocations for 64 bit integers.
+/// implementation to avoid allocations.
 class [[nodiscard]] Integer final : public detail::LimbRange {
 public:
+    static constexpr size_type inline_capacity = 2;
+    static_assert(inline_capacity > 0);
+    using inline_storage = std::array<value_type, inline_capacity>;
+
     //===------------------------------------------------------------------===//
     // Initialization
     //===------------------------------------------------------------------===//
@@ -42,8 +52,13 @@ public:
     /// Initializes an Integer of value zero.
     ///
     /// @post       `isInline()`
-    /// @post       `capacity() == 1`
-    /*implicit*/ Integer() : LimbRange(1, 0, &m_inline), m_inline(0)
+    /// @post       `capacity() == inline_capacity`
+    /*implicit*/ Integer()
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuninitialized"
+            : LimbRange(inline_capacity, 0, m_inline.data()),
+#pragma GCC diagnostic pop
+              m_inline()
     {
         // Ensure GMP is initialized.
         attachGMPAllocator();
@@ -90,8 +105,9 @@ public:
     void assign(std::integral auto value)
     {
         // Ensure storage fits value.
-        // NOTE: Due to inline storage, capacity never drops below 1.
-        assert(capacity() >= 1);
+        // NOTE: Due to inline storage, capacity never drops below
+        // inline_capacity.
+        assert(capacity() >= inline_capacity);
 
         *data() = magnitude(value);
         m_size_and_sign = signum(value);
@@ -164,8 +180,8 @@ public:
             external.m_inline = internal.m_inline;
 
             // Transition external to inline storage.
-            external.m_capacity = 1;
-            external.m_data = &external.m_inline;
+            external.m_capacity = inline_capacity;
+            external.m_data = external.m_inline.data();
 
             swap(internal.m_size_and_sign, external.m_size_and_sign);
         };
@@ -218,15 +234,15 @@ public:
     /// Resets this value to the default-constructed state.
     ///
     /// @post       `isInline()`
-    /// @post       `capacity() == 1`
+    /// @post       `capacity() == inline_capacity`
     void reset()
     {
         // External storag is free'd.
         if (isAllocated()) free();
 
         // We immediately go to internal storage.
-        m_capacity = 1;
-        m_data = &m_inline;
+        m_capacity = inline_capacity;
+        m_data = m_inline.data();
         assert(isInline());
 
         // We call the underlying clear that resets the size.
@@ -263,7 +279,7 @@ public:
             // Move to external storage.
             m_data = allocate(limbs);
             m_capacity = limbs;
-            *data() = m_inline;
+            std::copy_n(m_inline.data(), size(), data());
             return;
         }
 
@@ -280,22 +296,21 @@ public:
     /// @retval     false   Data was lost and value reset to 0.
     [[nodiscard]] bool resize(size_type limbs)
     {
-        switch (limbs) {
-        case 0:
-        {
+        if (limbs == 0) {
             const auto lossless = isZero();
             reset();
             return lossless;
         }
-        case 1:
+
+        if (limbs <= inline_capacity) {
             // Try to compact, or reset to zero.
-            if (compact()) return true;
+            if (compact() && size() <= limbs) return true;
             reset();
             return false;
-        default:
-            // Fallback to GMP reallocation.
-            return realloc(limbs);
         }
+
+        // Fallback to GMP reallocation.
+        return realloc(limbs);
     }
 
     //===------------------------------------------------------------------===//
@@ -433,7 +448,7 @@ private:
     /// Determines whether the storage is inline.
     [[nodiscard]] constexpr bool isInline() const
     {
-        return data() == &m_inline;
+        return data() == m_inline.data();
     }
     /// Determines whether external storage is allocated.
     [[nodiscard]] constexpr bool isAllocated() const
@@ -469,26 +484,26 @@ private:
     bool compact()
     {
         /// Storage cannot possibly be inlined (doesn't fit).
-        if (size() > 1) return false;
+        if (size() > inline_capacity) return false;
 
         if (isAllocated()) {
             // Move the value into internal storage.
-            m_inline = *data();
+            std::copy_n(data(), size(), m_inline.data());
             // Free the external storage.
             free();
         }
 
         // Storage is now internal.
-        m_capacity = 1;
-        m_data = &m_inline;
+        m_capacity = inline_capacity;
+        m_data = m_inline.data();
         return true;
     }
 
     // NOTE: This is the inline storage that avoids allocating external limb
     //       storage when initializing values of type Integer that use up to
-    //       64 bits of storage.
+    //       inline_capacity words of storage.
     // NOTE: This breaks ABI compatibility with __mpq_struct!
-    value_type m_inline;
+    inline_storage m_inline;
 };
 
 #define BINOP(op)                                                              \

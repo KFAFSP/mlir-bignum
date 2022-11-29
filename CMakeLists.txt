@@ -10,7 +10,7 @@ cmake_minimum_required(VERSION 3.20)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 project(mlir-bignum
-    VERSION     0.1.0
+    VERSION     0.1.1
     LANGUAGES   C CXX
 )
 

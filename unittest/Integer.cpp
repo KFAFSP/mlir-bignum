@@ -16,6 +16,15 @@ static constexpr auto make_limbs(Limbs... limbs)
     return std::array{static_cast<ui_t>(limbs)...};
 }
 
+template<std::size_t N>
+static constexpr auto make_iota(auto... is)
+{
+    if constexpr (N == 0)
+        return make_limbs(is...);
+    else
+        return make_iota<N-1>(N-1, is...);
+}
+
 //===----------------------------------------------------------------------===//
 // IntegerTraits
 //===----------------------------------------------------------------------===//
@@ -280,10 +289,16 @@ TEST_CASE("Integer::Integer()")
     Integer integer{};
     auto alias = reinterpret_cast<mpz_struct*>(&integer);
 
-    CHECK(alias->c == 1);
+    CHECK(alias->c == Integer::inline_capacity);
     CHECK(alias->s == 0);
     CHECK(alias->d == integer.data());
 }
+
+const Integer zero;
+constexpr auto small_limbs = make_iota<Integer::inline_capacity>();
+const IntegerRef small_ref(small_limbs.size(), small_limbs.data());
+constexpr auto big_limbs = make_iota<Integer::inline_capacity+1>();
+const IntegerRef big_ref(big_limbs.size(), big_limbs.data());
 
 TEST_CASE("Integer::exp10(ui_t)")
 {
@@ -307,8 +322,11 @@ TEST_CASE("Integer::assign(IntegerRef value)")
 {
     Integer integer{};
 
-    integer.assign(IntegerRef({1, 2}, 1));
-    CHECK(integer == IntegerRef({1, 2}, 1));
+    integer.assign(small_ref);
+    CHECK(integer == small_ref);
+
+    integer.assign(big_ref);
+    CHECK(integer == big_ref);
 }
 
 TEST_CASE("Integer::assign(const llvm::APInt &, bool)")
@@ -324,25 +342,25 @@ TEST_CASE("Integer::assign(const llvm::APInt &, bool)")
 
 TEST_CASE("swap(Integer &, Integer &)")
 {
-    Integer int1(IntegerRef({1, 2}, 1)), int2(IntegerRef({2, 1}, 1));
+    Integer int1(small_ref), int2(big_ref);
     swap(int1, int2);
 
-    CHECK(int1 == IntegerRef({2, 1}, 1));
-    CHECK(int2 == IntegerRef({1, 2}, 1));
+    CHECK(int1 == big_ref);
+    CHECK(int2 == small_ref);
 }
 
 TEST_CASE("Integer::Integer(Integer &&)")
 {
-    Integer int1((IntegerRef({1, 2}, 1)));
+    Integer int1(big_ref);
     Integer int2(std::move(int1));
 
     CHECK(int1.isZero());
-    CHECK(int2 == IntegerRef({1, 2}, 1));
+    CHECK(int2 == big_ref);
 }
 
 TEST_CASE("Integer::clear()")
 {
-    Integer integer(IntegerRef({1, 2}, 1));
+    Integer integer(big_ref);
 
     integer.clear();
     CHECK(integer.isZero());
@@ -351,20 +369,20 @@ TEST_CASE("Integer::clear()")
 
 TEST_CASE("Integer::reset()")
 {
-    Integer integer(IntegerRef({1, 2}, 1));
+    Integer integer(big_ref);
 
     integer.reset();
     CHECK(integer.isZero());
-    CHECK(integer.capacity() == 1);
+    CHECK(integer.capacity() == Integer::inline_capacity);
 }
 
 TEST_CASE("Integer::shrink_to_fit()")
 {
-    Integer integer(IntegerRef({1, 2}, 1));
+    Integer integer(big_ref);
 
     integer.assign(4);
     integer.shrink_to_fit();
-    CHECK(integer.capacity() == integer.size());
+    CHECK(integer.capacity() == std::max(Integer::inline_capacity, integer.size()));
 }
 
 TEST_CASE("Integer::reserve(size_type)")
@@ -377,7 +395,7 @@ TEST_CASE("Integer::reserve(size_type)")
 
 TEST_CASE("Integer::resize(size_type)")
 {
-    Integer integer(IntegerRef({1, 2}, 1));
+    Integer integer(big_ref);
 
     CHECK(!integer.resize(1));
     CHECK(integer.isZero());
