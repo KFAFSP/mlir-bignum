@@ -50,8 +50,8 @@ link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 
 # Apply target properties for this project globally.
-include_directories(${CMAKE_SOURCE_DIR}/include/)
-include_directories(${CMAKE_BINARY_DIR}/include/)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/include/)
 
 # Find GMP.
 find_package(GMP REQUIRED)
