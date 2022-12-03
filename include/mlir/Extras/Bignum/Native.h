@@ -72,10 +72,12 @@ template<std::signed_integral SInt>
 {
     using UInt = std::make_unsigned_t<SInt>;
     if constexpr (std::numeric_limits<UInt>::radix == 2) {
-        const SInt mask = value >> (std::numeric_limits<UInt>::digits - 1);
-        value += mask;
-        value ^= mask;
-        return static_cast<UInt>(value);
+        const auto mask = static_cast<UInt>(
+            value >> (std::numeric_limits<UInt>::digits - 1));
+        auto result = static_cast<UInt>(value);
+        result += mask;
+        result ^= mask;
+        return result;
     } else {
         return value >= 0 ? value : static_cast<UInt>(-value);
     }
