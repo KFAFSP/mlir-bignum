@@ -29,3 +29,7 @@ The following CMake variables can be configured:
 ## License
 
 This project is licensed under the ISC license.
+
+---
+
+![EU notice](img/eu_banner.png)
